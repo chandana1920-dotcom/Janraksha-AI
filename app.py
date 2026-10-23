@@ -101,6 +101,10 @@ class MissingPerson(db.Model):
     description = db.Column(db.Text); clothing_description = db.Column(db.Text); last_seen_location = db.Column(db.String(200))
     last_seen_date = db.Column(db.Date)
     last_seen_time = db.Column(db.String(10)); status = db.Column(db.String(30), default='ACTIVE'); created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    approval_status = db.Column(db.String(30), nullable=False, default='PENDING_APPROVAL', index=True)
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    reviewed_at = db.Column(db.DateTime)
+    rejection_reason = db.Column(db.Text)
 
 
 class FaceEmbedding(db.Model):
@@ -325,10 +329,13 @@ def user_json(u):
 
 
 def person_json(p):
+    displayed_status = p.status if p.approval_status == 'APPROVED' else p.approval_status
     return {'id': p.id, 'case_id': p.case_id, 'name': p.name, 'age': p.age, 'gender': p.gender, 'photo': p.photo,
             'description': p.description, 'clothing_description': p.clothing_description, 'last_seen_location': p.last_seen_location,
             'last_seen_date': p.last_seen_date.isoformat() if p.last_seen_date else None,
-            'last_seen_time': p.last_seen_time, 'status': p.status, 'created_at': p.created_at.isoformat()}
+            'last_seen_time': p.last_seen_time, 'status': displayed_status, 'approval_status': p.approval_status,
+            'reviewed_at': p.reviewed_at.isoformat() if p.reviewed_at else None,
+            'rejection_reason': p.rejection_reason, 'created_at': p.created_at.isoformat()}
 
 
 def webcam_person_json(person):
@@ -808,7 +815,7 @@ def search_missing_persons(embedding, source_type=None, source_id=None, similari
     grouped = {}
     for row in FaceEmbedding.query.all():
         person = db.session.get(MissingPerson, row.missing_person_id)
-        if not person or normalize_case_status(person.status) == 'CLOSED':
+        if not person or person.approval_status != 'APPROVED' or normalize_case_status(person.status) == 'CLOSED':
             continue
         stored = np.array(json.loads(row.embedding_vector), dtype=np.float32)
         if stored.size != vector.size:
@@ -1074,6 +1081,11 @@ def uploads(name):
     normalized_name = name.replace('\\', '/').lstrip('/')
     if normalized_name.startswith(('emergency-cases/', 'sightings/')):
         return api_error('Resource not found.', 404)
+    missing_person = MissingPerson.query.filter_by(photo=f'/uploads/{name}').first()
+    if missing_person and missing_person.approval_status != 'APPROVED':
+        viewer = current_user()
+        if not viewer or not (viewer.role in {'POLICE_OFFICER', 'ADMIN_DEMO', 'INVESTIGATOR'} or (viewer.role == 'FAMILY_USER' and missing_person.registered_by == viewer.id)):
+            return api_error('Resource not found.', 404)
     sighting = Sighting.query.filter_by(photo=f'/uploads/{name}').first()
     if sighting and not can_access_sighting(sighting, current_user()):
         return api_error('Resource not found.', 404)
@@ -1888,13 +1900,53 @@ def create_webcam_review(session_id):
 @app.get('/api/missing-persons')
 @require_auth()
 def list_people():
-    q = MissingPerson.query
+    q = MissingPerson.query.filter_by(approval_status='APPROVED')
     term = request.args.get('q', '').strip()
     if term:
         q = q.filter(db.or_(MissingPerson.name.ilike(f'%{term}%'), MissingPerson.case_id.ilike(f'%{term}%'), MissingPerson.last_seen_location.ilike(f'%{term}%')))
     if request.args.get('status'):
         q = q.filter_by(status=request.args['status'])
     return jsonify(items=[person_json(p) for p in q.order_by(MissingPerson.created_at.desc()).all()])
+
+
+@app.get('/api/police/missing-person-cases')
+@require_auth({'POLICE_OFFICER', 'ADMIN_DEMO', 'INVESTIGATOR'})
+def list_missing_person_reviews():
+    rows = MissingPerson.query.filter_by(approval_status='PENDING_APPROVAL').order_by(MissingPerson.created_at.asc()).all()
+    owners = {u.id: u for u in User.query.filter(User.id.in_([p.registered_by for p in rows])).all()} if rows else {}
+    items = []
+    for person in rows:
+        item = person_json(person)
+        owner = owners.get(person.registered_by)
+        item['reporter_name'] = owner.name if owner else 'Unknown'
+        item['reporter_contact'] = owner.phone if owner else None
+        items.append(item)
+    return jsonify(items=items)
+
+
+@app.put('/api/police/missing-person-cases/<int:pid>')
+@require_auth({'POLICE_OFFICER', 'ADMIN_DEMO', 'INVESTIGATOR'})
+def review_missing_person_case(pid):
+    person = db.session.get(MissingPerson, pid)
+    if not person:
+        return api_error('Case not found.', 404)
+    if person.approval_status != 'PENDING_APPROVAL':
+        return api_error('This case has already been reviewed.', 409)
+    data = request.get_json(silent=True) or {}
+    decision = str(data.get('decision') or '').upper()
+    if decision not in {'APPROVED', 'REJECTED'}:
+        return api_error('Choose Approve or Reject.')
+    person.approval_status = decision
+    person.reviewed_by = current_user().id
+    person.reviewed_at = datetime.utcnow()
+    person.rejection_reason = (str(data.get('rejection_reason') or '').strip()[:2000] or None) if decision == 'REJECTED' else None
+    if decision == 'APPROVED':
+        person.status = 'ACTIVE'
+    add_timeline(person.case_id, 'CASE_' + decision, f'Missing-person report {decision.lower()} by an authorized reviewer.' + (f' Reason: {person.rejection_reason}' if person.rejection_reason else ''), current_user().id)
+    message = 'Your missing-person report was approved and is now visible on the Missing Persons page.' if decision == 'APPROVED' else 'Your missing-person report was not approved.' + (f' Reason: {person.rejection_reason}' if person.rejection_reason else '')
+    db.session.add(Notification(user_id=person.registered_by, title='Case approved' if decision == 'APPROVED' else 'Case not approved', message=f'{person.case_id}: {message}', type='case'))
+    db.session.commit()
+    return jsonify(message='Case ' + decision.lower() + '.', person=person_json(person))
 
 
 @app.get('/api/ai/webcam/references')
@@ -1985,7 +2037,12 @@ def create_person():
         normalized_name = re.sub(r'[\W_]', '', submitted_name.casefold())
         submitted_age = int(d['age']) if d.get('age') else None
         submitted_gender = (d.get('gender') or '').strip().casefold()
-        for existing in MissingPerson.query.all():
+        owner = current_user()
+        visible_for_duplicate_check = db.or_(
+            MissingPerson.approval_status == 'APPROVED',
+            MissingPerson.registered_by == owner.id,
+        )
+        for existing in MissingPerson.query.filter(visible_for_duplicate_check).all():
             existing_name = re.sub(r'[\W_]', '', re.sub(r'\s+', ' ', (existing.name or '').strip()).casefold())
             if existing_name != normalized_name:
                 continue
@@ -1999,14 +2056,18 @@ def create_person():
         photo = save_file(request.files.get('photo'))
         if not photo:
             return api_error('A valid photograph is required.')
-        p = MissingPerson(case_id=next_case_id(), registered_by=current_user().id, name=submitted_name, age=submitted_age, gender=d.get('gender'), photo=photo,
+        approval_status = 'PENDING_APPROVAL' if owner.role == 'FAMILY_USER' else 'APPROVED'
+        p = MissingPerson(case_id=next_case_id(), registered_by=owner.id, name=submitted_name, age=submitted_age, gender=d.get('gender'), photo=photo,
                          description=d.get('description'), clothing_description=d.get('clothing_description'), last_seen_location=d.get('last_seen_location'),
-                         last_seen_date=date.fromisoformat(d['last_seen_date']) if d.get('last_seen_date') else None, last_seen_time=d.get('last_seen_time'))
+                         last_seen_date=date.fromisoformat(d['last_seen_date']) if d.get('last_seen_date') else None, last_seen_time=d.get('last_seen_time'),
+                         status='PENDING_APPROVAL' if approval_status == 'PENDING_APPROVAL' else 'ACTIVE',
+                         approval_status=approval_status)
         db.session.add(p); db.session.flush(); vector = embedding_from_file(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(photo)))
         db.session.add(FaceEmbedding(missing_person_id=p.id, embedding_vector=json.dumps(vector.tolist()), model_name='opencv-normalized-face-descriptor', embedding_dimension=len(vector)))
         add_timeline(p.case_id, 'CASE_REGISTERED', 'Missing-person case registered.', current_user().id)
-        db.session.add(Notification(user_id=current_user().id, title='Case created', message=f'{p.case_id} was created successfully.', type='success'))
-        db.session.commit(); return jsonify(message='Missing-person case created successfully.', person=person_json(p)), 201
+        confirmation = 'Your missing-person report has been submitted successfully and is awaiting police verification.' if owner.role == 'FAMILY_USER' else 'Missing-person case created successfully.'
+        db.session.add(Notification(user_id=owner.id, title='Case submitted' if approval_status == 'PENDING_APPROVAL' else 'Case created', message=f'{p.case_id}: {confirmation}', type='success'))
+        db.session.commit(); return jsonify(message=confirmation, person=person_json(p)), 201
     except ValueError as e:
         db.session.rollback()
         if photo:
@@ -2024,24 +2085,29 @@ def get_person(pid):
     if not p:
         return api_error('Case not found.', 404)
     viewer = current_user()
+    if p.approval_status != 'APPROVED' and not (viewer.role in {'POLICE_OFFICER', 'ADMIN_DEMO', 'INVESTIGATOR'} or (viewer.role == 'FAMILY_USER' and p.registered_by == viewer.id)):
+        return api_error('Case not found.', 404)
     can_update_status = bool(
-        viewer.role in {'INVESTIGATOR', 'ADMIN_DEMO', 'POLICE_OFFICER', 'FAMILY_USER'}
+        p.approval_status == 'APPROVED' and viewer.role in {'ADMIN_DEMO', 'POLICE_OFFICER'}
     )
     can_add_notes = viewer.role in {'INVESTIGATOR', 'ADMIN_DEMO'}
     return jsonify(
         person=person_json(p),
         timeline=[{'event_type': x.event_type, 'description': x.description, 'created_at': x.created_at.isoformat()} for x in Timeline.query.filter_by(case_id=p.case_id).order_by(Timeline.created_at.desc())],
         notes=[{'body': x.body, 'created_at': x.created_at.isoformat()} for x in InvestigationNote.query.filter_by(case_id=p.case_id).all()],
-        permissions={'can_update_status': can_update_status, 'can_add_notes': can_add_notes},
+        permissions={'can_update_status': can_update_status, 'can_add_notes': can_add_notes,
+                     'is_owner': viewer.role == 'FAMILY_USER' and p.registered_by == viewer.id},
     )
 
 
 @app.put('/api/missing-persons/<int:pid>')
-@require_auth({'INVESTIGATOR', 'ADMIN_DEMO', 'POLICE_OFFICER', 'FAMILY_USER'})
+@require_auth({'ADMIN_DEMO', 'POLICE_OFFICER'})
 def update_person(pid):
     p = db.session.get(MissingPerson, pid); d = request.get_json() or {}
     if not p:
         return api_error('Case not found.', 404)
+    if p.approval_status != 'APPROVED':
+        return api_error('Case status can be updated only after police approval.', 409)
     if normalize_case_status(p.status) == 'CLOSED':
         return api_error('This case is closed and its status can no longer be changed.', 409)
     user = current_user()
@@ -2107,7 +2173,7 @@ def sighting():
         data = request.form
         case_id = (data.get('case_id') or '').strip().upper()
         case = MissingPerson.query.filter(db.func.upper(MissingPerson.case_id) == case_id).first() if case_id else None
-        if not case:
+        if not case or case.approval_status != 'APPROVED':
             return api_error('No missing-person case matches that ID. Enter the JR-YYYY-NNNN case ID shown in Missing persons.', 404)
         description = (data.get('description') or '').strip()
         location_name = (data.get('location_name') or '').strip()
@@ -2313,7 +2379,9 @@ def note(case_id):
 @app.get('/api/matches')
 @require_auth({'INVESTIGATOR', 'ADMIN_DEMO'})
 def matches():
-    rows = AIMatch.query.order_by(AIMatch.created_at.desc()).all()
+    rows = AIMatch.query.join(MissingPerson, AIMatch.missing_person_id == MissingPerson.id).filter(
+        MissingPerson.approval_status == 'APPROVED'
+    ).order_by(AIMatch.created_at.desc()).all()
     return jsonify(items=[{'id': x.id, 'case_id': db.session.get(MissingPerson, x.missing_person_id).case_id, 'name': db.session.get(MissingPerson, x.missing_person_id).name,
                             'similarity_score': x.similarity_score, 'status': normalize_match_status(x.status), 'source_type': x.source_type,
                             'created_at': x.created_at.isoformat()} for x in rows])
@@ -2328,7 +2396,7 @@ def get_match(match_id):
     if not can_review_match(match):
         return api_error('You do not have permission to review this potential match.', 403)
     case = db.session.get(MissingPerson, match.missing_person_id)
-    if not case:
+    if not case or case.approval_status != 'APPROVED':
         return api_error('Associated missing-person case not found.', 404)
     report = None
     if match.source_type == 'FOUND_PERSON':
@@ -2384,8 +2452,11 @@ def verify_match(match_id):
         return api_error('Potential match not found.', 404)
     if not can_review_match(match):
         return api_error('You do not have permission to verify this potential match.', 403)
+    match_case = db.session.get(MissingPerson, match.missing_person_id)
+    if not match_case or match_case.approval_status != 'APPROVED':
+        return api_error('Associated missing-person case not found.', 404)
     if normalize_match_status(match.status) == 'VERIFIED_BY_AUTHORIZED_USER' and decision == 'VERIFIED':
-        case = db.session.get(MissingPerson, match.missing_person_id)
+        case = match_case
         return jsonify(message='This match has already been verified.',
                        case={'case_id': case.case_id, 'status': normalize_case_status(case.status)} if case else None,
                        match={'id': match.id, 'status': normalize_match_status(match.status)}), 200
@@ -2394,7 +2465,7 @@ def verify_match(match_id):
     if decision not in {'VERIFIED', 'NOT_RELEVANT'}:
         return api_error('Decision must be VERIFIED or NOT_RELEVANT.', 400)
     case = db.session.get(MissingPerson, match.missing_person_id)
-    if not case:
+    if not case or case.approval_status != 'APPROVED':
         return api_error('Associated missing-person case not found.', 404)
     actor = current_user()
     notes = (payload.get('notes') or '').strip()
@@ -2462,6 +2533,8 @@ def mark_not_relevant(match_id):
         return api_error('This verified match cannot be changed to not relevant.', 409)
     match.status = 'NOT_RELEVANT';
     case = db.session.get(MissingPerson, match.missing_person_id)
+    if case and case.approval_status != 'APPROVED':
+        return api_error('Associated missing-person case not found.', 404)
     if case:
         add_timeline(case.case_id, 'AI_MATCH_REVIEWED', 'AI potential match reviewed and marked not relevant.', current_user().id)
         add_timeline(case.case_id, 'MATCH_RECORDED', 'No person-found notification was sent because the lead was marked not relevant.', current_user().id)
@@ -2919,6 +2992,12 @@ def backfill_sighting_notification_links():
 
 def ensure_sighting_schema():
     additions = {
+        'missing_person': {
+            'approval_status': "VARCHAR(30) NOT NULL DEFAULT 'PENDING_APPROVAL'",
+            'reviewed_by': 'INTEGER',
+            'reviewed_at': 'DATETIME',
+            'rejection_reason': 'TEXT',
+        },
         'sighting': {
             'sighting_date': 'DATE',
             'sighting_time': 'VARCHAR(10)',
