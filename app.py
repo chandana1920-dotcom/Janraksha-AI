@@ -162,6 +162,7 @@ class Notification(db.Model):
     id = db.Column(db.Integer, primary_key=True); user_id = db.Column(db.Integer, db.ForeignKey('user.id')); title = db.Column(db.String(150)); message = db.Column(db.Text)
     type = db.Column(db.String(30), default='info'); is_read = db.Column(db.Boolean, default=False); created_at = db.Column(db.DateTime, default=datetime.utcnow)
     sighting_id = db.Column(db.Integer, db.ForeignKey('sighting.id'), index=True)
+    found_person_id = db.Column(db.Integer, db.ForeignKey('found_person.id'), index=True)
 
 
 class EmailNotification(db.Model):
@@ -1041,6 +1042,15 @@ def can_access_sighting(report, user):
     if user.role in {'POLICE_OFFICER', 'ADMIN_DEMO'} or report.reported_by == user.id:
         return True
     case = MissingPerson.query.filter_by(case_id=report.case_id).first()
+    return bool(user.role == 'FAMILY_USER' and case and case.registered_by == user.id)
+
+
+def can_access_found_person(report, user):
+    if not report or not user:
+        return False
+    if user.role in {'POLICE_OFFICER', 'ADMIN_DEMO'} or report.reported_by == user.id:
+        return True
+    case = MissingPerson.query.filter_by(case_id=report.matched_case_id).first() if report.matched_case_id else None
     return bool(user.role == 'FAMILY_USER' and case and case.registered_by == user.id)
 
 
@@ -1968,10 +1978,28 @@ def delete_webcam_reference(reference_id):
 def create_person():
     photo = None
     try:
-        photo = save_file(request.files.get('photo')); d = request.form
-        if not d.get('name') or not photo:
+        d = request.form
+        submitted_name = re.sub(r'\s+', ' ', (d.get('name') or '').strip())
+        if not submitted_name or not request.files.get('photo'):
             return api_error('Name and photograph are required.')
-        p = MissingPerson(case_id=next_case_id(), registered_by=current_user().id, name=d['name'], age=int(d['age']) if d.get('age') else None, gender=d.get('gender'), photo=photo,
+        normalized_name = re.sub(r'[\W_]', '', submitted_name.casefold())
+        submitted_age = int(d['age']) if d.get('age') else None
+        submitted_gender = (d.get('gender') or '').strip().casefold()
+        for existing in MissingPerson.query.all():
+            existing_name = re.sub(r'[\W_]', '', re.sub(r'\s+', ' ', (existing.name or '').strip()).casefold())
+            if existing_name != normalized_name:
+                continue
+            if submitted_age is not None and existing.age is not None and submitted_age != existing.age:
+                continue
+            existing_gender = (existing.gender or '').strip().casefold()
+            if submitted_gender not in {'', 'not specified'} and existing_gender not in {'', 'not specified'} and submitted_gender != existing_gender:
+                continue
+            return jsonify(error=f'This person is already registered as case {existing.case_id}. No new case was created.'), 409
+
+        photo = save_file(request.files.get('photo'))
+        if not photo:
+            return api_error('A valid photograph is required.')
+        p = MissingPerson(case_id=next_case_id(), registered_by=current_user().id, name=submitted_name, age=submitted_age, gender=d.get('gender'), photo=photo,
                          description=d.get('description'), clothing_description=d.get('clothing_description'), last_seen_location=d.get('last_seen_location'),
                          last_seen_date=date.fromisoformat(d['last_seen_date']) if d.get('last_seen_date') else None, last_seen_time=d.get('last_seen_time'))
         db.session.add(p); db.session.flush(); vector = embedding_from_file(os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(photo)))
@@ -2014,6 +2042,8 @@ def update_person(pid):
     p = db.session.get(MissingPerson, pid); d = request.get_json() or {}
     if not p:
         return api_error('Case not found.', 404)
+    if normalize_case_status(p.status) == 'CLOSED':
+        return api_error('This case is closed and its status can no longer be changed.', 409)
     user = current_user()
     if d.get('status') not in CASE_STATUSES:
         return api_error('Invalid case status.')
@@ -2081,6 +2111,8 @@ def sighting():
             return api_error('No missing-person case matches that ID. Enter the JR-YYYY-NNNN case ID shown in Missing persons.', 404)
         description = (data.get('description') or '').strip()
         location_name = (data.get('location_name') or '').strip()
+        if not location_name:
+            return api_error('A location is required for a sighting report.')
         if len(description) > 5000 or len(location_name) > 200:
             return api_error('Description must be 5,000 characters or fewer and location must be 200 characters or fewer.')
         raw_date = (data.get('sighting_date') or '').strip()
@@ -2229,12 +2261,43 @@ def verify_found_person(report_id):
         if case:
             case.status = 'PERSON_FOUND'; add_timeline(case.case_id, 'PERSON_FOUND_VERIFIED', f'Human verification confirmed the person was found at {location}.', current_user().id)
             message = f'A human verification confirmed that {case.name} was found near {location}. Please review the case and update follow-up actions.'
-            notify_case(case.case_id, 'Confirmed found person', message); send_case_email(case.case_id, 'JanRaksha AI: person found and verified', message)
+            db.session.add(Notification(user_id=case.registered_by, title='Confirmed found person', message=message,
+                                        type='found_person', found_person_id=report.id))
+            send_case_email(case.case_id, 'JanRaksha AI: person found and verified', message)
         db.session.commit(); return jsonify(message='Human verification confirmed. The alert was sent to the registered case owner.', report={'id': report.id, 'verification_status': report.verification_status, 'verified_location': report.verified_location}), 200
     report.verification_status = 'VERIFIED_NOT_FOUND'; report.verified_found = False; report.verified_by = current_user().id; report.verified_at = datetime.utcnow(); report.matched_case_id = case_id
     if case:
         add_timeline(case.case_id, 'FOUND_PERSON_REJECTED', 'Human verification rejected this found-person lead.', current_user().id)
     db.session.commit(); return jsonify(message='Human verification rejected this match. No alert was sent.', report={'id': report.id, 'verification_status': report.verification_status}), 200
+
+
+@app.get('/api/found-persons/<int:report_id>')
+@require_auth()
+def get_found_person(report_id):
+    report = db.session.get(FoundPerson, report_id)
+    if (not report or report.verification_status != 'VERIFIED_FOUND'
+            or not can_access_found_person(report, current_user())):
+        return api_error('Found-person report not found.', 404)
+    return jsonify(report={
+        'id': report.id,
+        'matched_case_id': report.matched_case_id,
+        'description': report.description,
+        'location_name': report.location_name,
+        'found_date': report.found_date.isoformat() if report.found_date else None,
+        'verified_location': report.verified_location,
+        'verified_at': report.verified_at.isoformat() if report.verified_at else None,
+        'photo_url': f'/api/found-persons/{report.id}/photo' if report.photo else None,
+    })
+
+
+@app.get('/api/found-persons/<int:report_id>/photo')
+@require_auth()
+def get_found_person_photo(report_id):
+    report = db.session.get(FoundPerson, report_id)
+    if (not report or report.verification_status != 'VERIFIED_FOUND' or not report.photo
+            or not can_access_found_person(report, current_user())):
+        return api_error('Found-person photo not found.', 404)
+    return send_from_directory(app.config['UPLOAD_FOLDER'], os.path.basename(report.photo))
 
 
 @app.post('/api/cases/<case_id>/notes')
@@ -2452,6 +2515,9 @@ def notifications():
             'created_at': notification.created_at.isoformat(),
             'type': notification.type,
             'sighting_id': sighting_id,
+            'found_person_id': notification.found_person_id if notification.found_person_id and can_access_found_person(
+                db.session.get(FoundPerson, notification.found_person_id), user
+            ) else None,
         })
     return jsonify(items=items)
 
@@ -2573,10 +2639,42 @@ def emergency_history():
     rows = EmergencyEvent.query.filter_by(user_id=current_user().id).order_by(EmergencyEvent.created_at.desc()).all(); return jsonify(items=[{'id': x.id, 'status': x.status, 'location_name': x.location_name, 'message': x.message, 'created_at': x.created_at.isoformat(), 'cancelled_at': x.cancelled_at.isoformat() if x.cancelled_at else None} for x in rows])
 
 
+def emergency_case_duplicate_of(case):
+    """Return the earliest likely same-incident report, if one exists."""
+    location = re.sub(r'[^\w]', '', (case.location_name or '').casefold())
+    if not location:
+        return None
+    current_words = set(re.findall(r'\w+', (case.description or '').casefold()))
+    if not current_words:
+        return None
+    window_start = case.created_at - timedelta(hours=2)
+    earlier_cases = EmergencyCase.query.filter(
+        EmergencyCase.category == case.category,
+        EmergencyCase.created_at < case.created_at,
+        EmergencyCase.created_at >= window_start,
+    ).order_by(EmergencyCase.created_at.asc(), EmergencyCase.id.asc()).all()
+    ignored_words = {'a', 'an', 'the', 'at', 'in', 'on', 'near', 'of', 'to', 'and', 'is', 'was', 'there', 'incident', 'reported', 'happened'}
+    current_words -= ignored_words
+    for earlier in earlier_cases:
+        earlier_location = re.sub(r'[^\w]', '', (earlier.location_name or '').casefold())
+        if earlier_location != location:
+            continue
+        earlier_words = set(re.findall(r'\w+', (earlier.description or '').casefold())) - ignored_words
+        if current_words == earlier_words and current_words:
+            return earlier
+        shared_words = current_words & earlier_words
+        smaller_description_size = min(len(current_words), len(earlier_words))
+        if len(shared_words) >= 2 and smaller_description_size and len(shared_words) / smaller_description_size >= 0.5:
+            return earlier
+    return None
+
+
 def emergency_case_json(case):
     officer = db.session.get(User, case.assigned_officer_id) if case.assigned_officer_id else None
+    duplicate_of = emergency_case_duplicate_of(case)
     return {
         'case_id': case.case_id,
+        'duplicate_of_case_id': duplicate_of.case_id if duplicate_of else None,
         'category': case.category,
         'reporter_user_id': case.reporter_user_id,
         'reporter_name': case.reporter_name,
@@ -2658,7 +2756,9 @@ def create_emergency_case():
         remove_emergency_attachment(attachment)
         app.logger.exception('Failed to save emergency case.')
         return api_error('Emergency report could not be saved. Please try again.', 500)
-    return jsonify(message='Emergency report submitted successfully.', case=emergency_case_json(case)), 201
+    duplicate_of = emergency_case_duplicate_of(case)
+    message = f'This report was received as a duplicate of case {duplicate_of.case_id}.' if duplicate_of else 'Emergency report submitted successfully.'
+    return jsonify(message=message, case=emergency_case_json(case)), 201
 
 
 @app.get('/api/emergency/case-attachments/<case_id>')
@@ -2824,7 +2924,7 @@ def ensure_sighting_schema():
             'sighting_time': 'VARCHAR(10)',
             'review_status': "VARCHAR(30) NOT NULL DEFAULT 'PENDING_REVIEW'",
         },
-        'notification': {'sighting_id': 'INTEGER'},
+        'notification': {'sighting_id': 'INTEGER', 'found_person_id': 'INTEGER'},
     }
     inspector = inspect(db.engine)
     for table, columns in additions.items():

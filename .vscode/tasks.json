@@ -4,8 +4,14 @@
     {
       "label": "Run JanRaksha (project virtual environment)",
       "type": "process",
-      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-      "args": ["app.py"],
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\run.ps1"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
