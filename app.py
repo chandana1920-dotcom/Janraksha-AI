@@ -162,6 +162,18 @@ class Timeline(db.Model):
     created_by = db.Column(db.Integer); created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class FamilyReport(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.String(20), nullable=False, index=True)
+    submitted_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    location_name = db.Column(db.String(200), nullable=False)
+    found_date = db.Column(db.Date)
+    found_time = db.Column(db.String(10))
+    condition = db.Column(db.String(200))
+    details = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class Notification(db.Model):
     id = db.Column(db.Integer, primary_key=True); user_id = db.Column(db.Integer, db.ForeignKey('user.id')); title = db.Column(db.String(150)); message = db.Column(db.Text)
     type = db.Column(db.String(30), default='info'); is_read = db.Column(db.Boolean, default=False); created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -2148,6 +2160,41 @@ def my_cases():
     return jsonify(items=[person_json(person) for person in rows])
 
 
+@app.post('/api/my-cases/<case_id>/family-report')
+@require_auth({'FAMILY_USER'})
+def submit_family_report(case_id):
+    case = MissingPerson.query.filter_by(case_id=case_id, registered_by=current_user().id).first()
+    if not case:
+        return api_error('Registered case not found.', 404)
+    data = request.get_json(silent=True) or {}
+    location = str(data.get('location_name') or '').strip()
+    details = str(data.get('details') or '').strip()
+    condition = str(data.get('condition') or '').strip()
+    raw_date = str(data.get('found_date') or '').strip()
+    raw_time = str(data.get('found_time') or '').strip()
+    if not location or not details:
+        return api_error('Location and report details are required.')
+    if len(location) > 200 or len(condition) > 200 or len(details) > 5000:
+        return api_error('Location and condition must be 200 characters or fewer; details must be 5,000 characters or fewer.')
+    try:
+        found_date = date.fromisoformat(raw_date) if raw_date else None
+        found_time = datetime.strptime(raw_time, '%H:%M').strftime('%H:%M') if raw_time else None
+    except ValueError:
+        return api_error('Date or time is invalid.')
+    report = FamilyReport(case_id=case.case_id, submitted_by=current_user().id, location_name=location,
+                          found_date=found_date, found_time=found_time, condition=condition or None, details=details)
+    db.session.add(report)
+    db.session.add(Notification(user_id=current_user().id, title='Family report submitted',
+        message=f'{case.case_id}: Your family report has been sent to police for review.', type='case'))
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception('Failed to save family report for case %s.', case.case_id)
+        return api_error('Family report could not be submitted.', 500)
+    return jsonify(message='Family report submitted to police.', report_id=report.id), 201
+
+
 @app.get('/api/my-reports')
 @require_auth()
 def my_reports():
@@ -2261,6 +2308,58 @@ def get_sighting_photo(sighting_id):
 def list_police_sightings():
     reports = Sighting.query.order_by(Sighting.reported_at.desc()).limit(200).all()
     return jsonify(items=[sighting_json(report) for report in reports])
+
+
+@app.get('/api/police/case-updates')
+@require_auth({'POLICE_OFFICER', 'ADMIN_DEMO'})
+def list_police_case_updates():
+    reports = FoundPerson.query.filter(FoundPerson.matched_case_id.isnot(None)).order_by(FoundPerson.created_at.desc()).limit(500).all()
+    family_reports = FamilyReport.query.order_by(FamilyReport.created_at.desc()).limit(500).all()
+    return jsonify(items=[{
+        'id': report.id, 'case_id': report.matched_case_id,
+        'description': report.description, 'location_name': report.location_name,
+        'found_date': report.found_date.isoformat() if report.found_date else None,
+        'verified_location': report.verified_location,
+        'verified_at': report.verified_at.isoformat() if report.verified_at else None,
+        'review_status': report.verification_status,
+        'photo_url': f'/api/found-persons/{report.id}/photo' if report.photo and report.verification_status == 'VERIFIED_FOUND' else None,
+        'kind': 'Found person', 'submitted_at': report.created_at.isoformat() if report.created_at else None,
+    } for report in reports], family_reports=[{
+        'id': report.id, 'case_id': report.case_id, 'created_at': report.created_at.isoformat() if report.created_at else None,
+    } for report in family_reports])
+
+
+@app.get('/api/police/family-reports/<int:report_id>')
+@require_auth({'POLICE_OFFICER', 'ADMIN_DEMO'})
+def get_police_family_report(report_id):
+    report = db.session.get(FamilyReport, report_id)
+    if not report:
+        return api_error('Family report not found.', 404)
+    case = MissingPerson.query.filter_by(case_id=report.case_id).first()
+    return jsonify(report={
+        'id': report.id, 'case_id': report.case_id,
+        'person_name': case.name if case else 'Unknown',
+        'location_name': report.location_name,
+        'found_date': report.found_date.isoformat() if report.found_date else None,
+        'found_time': report.found_time, 'condition': report.condition,
+        'details': report.details,
+        'created_at': report.created_at.isoformat() if report.created_at else None,
+    })
+
+
+@app.get('/api/police/cases/<case_id>/family-reports')
+@require_auth({'POLICE_OFFICER', 'ADMIN_DEMO'})
+def list_police_family_reports(case_id):
+    case = MissingPerson.query.filter_by(case_id=case_id).first()
+    if not case:
+        return api_error('Registered case not found.', 404)
+    reports = FamilyReport.query.filter_by(case_id=case.case_id).order_by(FamilyReport.created_at.desc()).all()
+    return jsonify(case_id=case.case_id, person_name=case.name, items=[{
+        'id': report.id, 'location_name': report.location_name,
+        'found_date': report.found_date.isoformat() if report.found_date else None,
+        'found_time': report.found_time, 'condition': report.condition,
+        'details': report.details, 'created_at': report.created_at.isoformat() if report.created_at else None,
+    } for report in reports])
 
 
 @app.put('/api/police/sightings/<int:sighting_id>')
