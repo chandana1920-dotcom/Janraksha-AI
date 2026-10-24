@@ -1,58 +1,34 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JanRaksha AI</title><meta name="theme-color" content="#123b63"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.webmanifest"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="style.css?v=20261013-sighting-report-1"><link rel="stylesheet" href="match-results.css?v=20260930-1"><link rel="stylesheet" href="webcam.css?v=20261012-webcam-registry-2"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JanRaksha AI</title><meta name="theme-color" content="#123b63"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="manifest" href="/manifest.webmanifest"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="style.css?v=20261024-home-5"><link rel="stylesheet" href="match-results.css?v=20260930-1"><link rel="stylesheet" href="webcam.css?v=20261012-webcam-registry-2"></head><body>
 <div id="authView" class="landing">
-  <div class="trust-banner">Trusted civic response platform Ã¢â‚¬Â¢ privacy-first Ã¢â‚¬Â¢ human-reviewed decisions</div>
-  <nav class="navbar container py-4">
-    <a class="brand"><i class="fa-solid fa-shield-heart"></i> JANRAKSHA <small>AI</small></a>
-    <div>
-      <a class="btn btn-outline-primary me-2" href="/police"><i class="fa-solid fa-shield-halved"></i> Police Portal</a><button class="btn btn-link" onclick="showAuth('login')">Sign in</button>
-      <button class="btn btn-primary" onclick="showAuth('register')">Create account</button>
+  <header class="landing-nav">
+    <div class="landing-nav-inner">
+      <a class="brand landing-brand" href="/" aria-label="JanRaksha AI home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 64 72"><path d="M32 2 58 12v22c0 17-10 28-26 36C16 62 6 51 6 34V12L32 2Z"/><g class="brand-mark-people"><circle cx="32" cy="24" r="6"/><circle cx="20" cy="31" r="4.5"/><circle cx="44" cy="31" r="4.5"/><path d="M22 47c0-7 4-12 10-12s10 5 10 12v3H22v-3Zm-8-2c0-5 2-8 6-9 1 0 2 0 3 1-2 3-3 6-3 10h-6v-2Zm30 2c0-4-1-7-3-10 1-1 2-1 3-1 4 1 6 4 6 9v2h-6v-0Z"/></g></svg></span>
+        <span class="brand-copy"><strong>JANRAKSHA AI</strong><small>Public Safety Platform</small></span>
+      </a>
+      <nav class="landing-links" aria-label="Main navigation"><a class="active" href="/">Home</a><a class="police-link" href="/police">Police Portal</a></nav>
+      <div class="landing-actions"><button class="btn landing-signin" onclick="showAuth('login')">Sign In</button><button class="btn landing-create" onclick="showAuth('register')">Create Account</button></div>
     </div>
-  </nav>
-
-  <main class="container hero">
-    <div class="hero-copy">
-      <span class="eyebrow">TRUSTED COMMUNITY RESPONSE</span>
-      <h1>Search quickly.<br><span>Verify carefully.</span></h1>
-      <p>JanRaksha helps families, citizens, and authorized investigators coordinate safer searches with secure records, clear timelines, and human-verified AI support.</p>
-
-      <div class="cta-row">
-        <button class="btn btn-primary btn-lg" onclick="showAuth('register')">Report missing person</button>
-        <button class="btn btn-outline-primary btn-lg" onclick="showAuth('login')">Secure portal access</button>
-      </div>
-
-      <div class="trust-list">
-        <span><i class="fa-solid fa-user-shield"></i> Human-reviewed matches</span>
-        <span><i class="fa-solid fa-lock"></i> Privacy-aware access</span>
-        <span><i class="fa-solid fa-check-double"></i> Verified workflows</span>
-      </div>
-
-      <p class="ai-note mt-4"><i class="fa-solid fa-circle-info"></i> AI-generated matches are only potential leads. They are never treated as confirmed identity matches without authorized human review.</p>
-    </div>
-
-    <div class="hero-card">
-      <div class="status-badge"><i class="fa-solid fa-shield-check"></i> Secure workflow</div>
-      <h3>Built for trust</h3>
-      <ul class="trust-points">
-        <li><i class="fa-solid fa-check"></i> Role-based access for families, citizens, and investigators</li>
-        <li><i class="fa-solid fa-check"></i> Case records, sighting reports, and timelines kept in one accountable system</li>
-        <li><i class="fa-solid fa-check"></i> AI results used as leads, not proof, until a person validates them</li>
-      </ul>
-
-      <div class="mini-status">
-        <b>Verified process</b>
-        <span>Secure account access</span>
-        <span>Location and case data handled responsibly</span>
-      </div>
+  </header>
+  <main class="landing-hero">
+    <div class="landing-hero-inner">
+      <section class="landing-copy">
+        <div class="landing-eyebrow"><i class="fa-solid fa-sparkles"></i> AI-ASSISTED MISSING PERSON SEARCH</div>
+        <h1>Helping bring<br><span>people home.</span></h1>
+        <p>Report missing persons, share sightings, and support<br class="desktop-break"> verified investigations through one secure platform.</p>
+        <div class="landing-cta">
+          <button class="btn landing-primary-cta" onclick="showAuth('register')"><i class="fa-solid fa-user-magnifying-glass"></i><span>Report a Missing Person</span><i class="fa-solid fa-arrow-right"></i></button>
+          <button class="btn landing-secondary-cta" onclick="showAuth('login')"><i class="fa-solid fa-magnifying-glass"></i><span>Search for a Person</span><i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+      </section>
     </div>
   </main>
-
-  <section class="container trust-strip">
-    <div><i class="fa-solid fa-user-shield"></i> Human review</div>
-    <div><i class="fa-solid fa-lock"></i> Privacy focused</div>
-    <div><i class="fa-solid fa-map-location-dot"></i> Location-aware coordination</div>
-    <div><i class="fa-solid fa-circle-check"></i> Trusted response</div>
+  <section class="landing-benefits" aria-label="Platform safeguards">
+    <article><span class="benefit-icon shield"><i class="fa-solid fa-shield-halved"></i></span><div><h2>Secure and responsible</h2><p>Privacy-aware records and<br> authorized access.</p></div></article>
+    <article><span class="benefit-icon matching"><i class="fa-solid fa-user-astronaut"></i></span><div><h2>AI-assisted matching</h2><p>Potential matches require<br> human verification.</p></div></article>
   </section>
+  <footer class="landing-privacy"><span></span><i class="fa-solid fa-lock"></i><span></span><p>Privacy first <b>?</b> Human-reviewed decisions</p></footer>
 </div>
 <div id="loginModal" class="auth-modal d-none"><div class="auth-box"><button class="close" onclick="hideAuth()">&times;</button><h2>Welcome back</h2><p>Sign in to JanRaksha AI</p><form id="loginForm"><label>Email<input name="email" type="email" required></label><label>Password<input name="password" type="password" required></label><button class="btn btn-primary w-100">Sign in</button></form><button class="btn btn-link w-100" onclick="showAuth('register')">Create a new account</button></div></div>
 <div id="registerModal" class="auth-modal d-none"><div class="auth-box"><button class="close" onclick="hideAuth()">&times;</button><h2>Create an account</h2><form id="registerForm"><label>Full name<input name="name" required></label><label>Email<input name="email" type="email" required></label><label>Phone<input name="phone"></label><label>Role<select name="role" required><option value="FAMILY_USER">Family member</option><option value="CITIZEN">Citizen</option></select></label><label>Location<input name="location"></label><label>Password<input name="password" type="password" minlength="8" required></label><label class="check"><input name="terms" type="checkbox" required> I accept the responsible-use terms.</label><button class="btn btn-primary w-100">Create secure account</button></form></div></div>
-<div id="appView" class="d-none"><aside id="appNavigation"><a class="brand"><i class="fa-solid fa-shield-heart"></i> JANRAKSHA <small>AI</small></a><div data-role-nav="CITIZEN"><button class="nav-link active" data-page="dashboard"><i class="fa-solid fa-grid-2"></i>Dashboard</button><button class="nav-link" data-page="cases"><i class="fa-solid fa-user-group"></i>Missing persons</button><button class="nav-link d-none" data-page="case-approvals"><i class="fa-solid fa-clipboard-check"></i>Case approvals</button><button class="nav-link" data-page="webcam"><i class="fa-solid fa-camera-retro"></i>Live web cam</button><button class="nav-link d-none" data-page="case-updates"><i class="fa-solid fa-bell"></i>Case updates</button><button class="nav-link" data-page="sighting"><i class="fa-solid fa-eye"></i>Report sighting</button><button class="nav-link" data-page="found"><i class="fa-solid fa-hand-holding-heart"></i>Found person</button><button class="nav-link" data-page="my-reports"><i class="fa-solid fa-file-lines"></i>My Reports</button><button class="nav-link" data-page="profile"><i class="fa-solid fa-gear"></i>Profile &amp; Settings</button><button class="nav-link" data-page="emergency-community"><i class="fa-solid fa-phone-volume"></i>Safety Community</button><button class="nav-link logout"><i class="fa-solid fa-arrow-right-from-bracket"></i>Sign out</button></div><div data-role-nav="FAMILY_USER" class="d-none"><button class="nav-link active" data-page="dashboard"><i class="fa-solid fa-grid-2"></i>Dashboard</button><button class="nav-link" data-page="cases"><i class="fa-solid fa-user-group"></i>Missing persons</button><button class="nav-link" data-page="register-case"><i class="fa-solid fa-file-circle-plus"></i>Register case</button><button class="nav-link" data-page="my-cases"><i class="fa-solid fa-folder-open"></i>My Cases</button><button class="nav-link" data-page="search"><i class="fa-solid fa-wand-magic-sparkles"></i>AI search</button><button class="nav-link" data-page="webcam"><i class="fa-solid fa-camera-retro"></i>Live web cam</button><button class="nav-link" data-page="notifications"><i class="fa-solid fa-bell"></i>Messages &amp; Notifications <span class="notification-badge d-none" data-unread-badge></span></button><button class="nav-link" data-page="emergency-community"><i class="fa-solid fa-phone-volume"></i>Safety Community</button><button class="nav-link" data-page="profile"><i class="fa-solid fa-gear"></i>Profile &amp; Settings</button><button class="nav-link logout"><i class="fa-solid fa-arrow-right-from-bracket"></i>Sign out</button></div></aside><button type="button" class="nav-backdrop" aria-label="Close navigation"></button><section class="workspace"><header><button class="mobile-menu" type="button" aria-label="Open navigation" aria-controls="appNavigation" aria-expanded="false"><i class="fa-solid fa-bars"></i></button><button type="button" class="header-notifications d-none" aria-label="Open notifications" onclick="go('notifications')"><i class="fa-solid fa-bell"></i><span class="notification-badge d-none" data-unread-badge></span></button><div><span id="roleBadge" class="role"></span><h5 id="userName"></h5></div></header><main id="page"></main></section></div><div id="toast" class="toast-msg"></div><script src="app.js?v=20261023-case-management-1"></script></body></html>
+<div id="appView" class="d-none"><aside id="appNavigation"><a class="brand"><i class="fa-solid fa-shield-heart"></i> JANRAKSHA <small>AI</small></a><div data-role-nav="CITIZEN"><button class="nav-link active" data-page="dashboard"><i class="fa-solid fa-grid-2"></i>Dashboard</button><button class="nav-link" data-page="cases"><i class="fa-solid fa-user-group"></i>Missing persons</button><button class="nav-link d-none" data-page="case-approvals"><i class="fa-solid fa-clipboard-check"></i>Case approvals</button><button class="nav-link" data-page="webcam"><i class="fa-solid fa-camera-retro"></i>Live web cam</button><button class="nav-link d-none" data-page="case-updates"><i class="fa-solid fa-bell"></i>Case updates</button><button class="nav-link" data-page="sighting"><i class="fa-solid fa-eye"></i>Report sighting</button><button class="nav-link" data-page="found"><i class="fa-solid fa-hand-holding-heart"></i>Found person</button><button class="nav-link" data-page="my-reports"><i class="fa-solid fa-file-lines"></i>My Reports</button><button class="nav-link" data-page="profile"><i class="fa-solid fa-gear"></i>Profile &amp; Settings</button><button class="nav-link" data-page="emergency-community"><i class="fa-solid fa-phone-volume"></i>Safety Community</button><button class="nav-link logout"><i class="fa-solid fa-arrow-right-from-bracket"></i>Sign out</button></div><div data-role-nav="FAMILY_USER" class="d-none"><button class="nav-link active" data-page="dashboard"><i class="fa-solid fa-grid-2"></i>Dashboard</button><button class="nav-link" data-page="cases"><i class="fa-solid fa-user-group"></i>Missing persons</button><button class="nav-link" data-page="register-case"><i class="fa-solid fa-file-circle-plus"></i>Register case</button><button class="nav-link" data-page="my-cases"><i class="fa-solid fa-folder-open"></i>My Cases</button><button class="nav-link" data-page="search"><i class="fa-solid fa-wand-magic-sparkles"></i>AI search</button><button class="nav-link" data-page="webcam"><i class="fa-solid fa-camera-retro"></i>Live web cam</button><button class="nav-link" data-page="notifications"><i class="fa-solid fa-bell"></i>Messages &amp; Notifications <span class="notification-badge d-none" data-unread-badge></span></button><button class="nav-link" data-page="emergency-community"><i class="fa-solid fa-phone-volume"></i>Safety Community</button><button class="nav-link" data-page="profile"><i class="fa-solid fa-gear"></i>Profile &amp; Settings</button><button class="nav-link logout"><i class="fa-solid fa-arrow-right-from-bracket"></i>Sign out</button></div></aside><button type="button" class="nav-backdrop" aria-label="Close navigation"></button><section class="workspace"><header><button class="mobile-menu" type="button" aria-label="Open navigation" aria-controls="appNavigation" aria-expanded="false"><i class="fa-solid fa-bars"></i></button><button type="button" class="header-notifications d-none" aria-label="Open notifications" onclick="go('notifications')"><i class="fa-solid fa-bell"></i><span class="notification-badge d-none" data-unread-badge></span></button><div><span id="roleBadge" class="role"></span><h5 id="userName"></h5></div></header><main id="page"></main></section></div><div id="toast" class="toast-msg"></div><script src="app.js?v=20261024-home-1"></script></body></html>

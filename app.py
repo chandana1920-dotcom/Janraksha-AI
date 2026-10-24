@@ -53,6 +53,17 @@ def load_local_env():
 
 load_local_env()
 
+POLICE_STATIONS = {
+    'Vidyaranyapura Police Station': ('vidyaranyapura', 'vidyaranya', 'hebbal', 'jalahalli', 'sahakara nagar'),
+    'Yelahanka New Town Police Station': ('yelahanka', 'new town', 'attur', 'rajanukunte', 'bagalur'),
+    'Yeshwanthapura Police Station': ('yeshwanthpur', 'yeshwantpur', 'yeshwanthapura', 'yeshwantpura', 'mathikere', 'peenya', 'goraguntepalya'),
+}
+
+
+def missing_person_matches_station(person, station):
+    location = re.sub(r'[^a-z0-9 ]', ' ', (person.last_seen_location or '').lower())
+    return any(term in location for term in POLICE_STATIONS.get(station, ()))
+
 app = Flask(__name__, static_folder='frontend', static_url_path='')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'development-only-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///janraksha.db')
@@ -1127,6 +1138,9 @@ def police_login():
     data = request.get_json(silent=True) or {}
     identifier = str(data.get('identifier') or '').strip()
     password = data.get('password') or ''
+    police_station = str(data.get('police_station') or '').strip()
+    if police_station not in POLICE_STATIONS:
+        return api_error('Choose a valid police station.', 400)
     if not identifier or not password:
         return api_error('Police ID or email and password are required.', 400)
     officer = PoliceOfficer.query.filter(
@@ -1141,7 +1155,8 @@ def police_login():
         return api_error('Police ID/email or password is incorrect.', 401)
     session.clear()
     session['user_id'] = user.id
-    return jsonify(user=user_json(user), police_id=officer.police_id)
+    session['police_station'] = police_station
+    return jsonify(user=user_json(user), police_id=officer.police_id, police_station=police_station)
 
 
 @app.post('/api/police/logout')
@@ -1210,7 +1225,7 @@ def logout():
 @app.get('/api/users/me')
 @require_auth()
 def me():
-    return jsonify(user=user_json(current_user()))
+    return jsonify(user=user_json(current_user()), police_station=session.get('police_station'))
 
 
 @app.put('/api/users/me')
@@ -1925,6 +1940,15 @@ def list_people():
 @require_auth({'POLICE_OFFICER', 'ADMIN_DEMO', 'INVESTIGATOR'})
 def list_missing_person_reviews():
     rows = MissingPerson.query.filter_by(approval_status='PENDING_APPROVAL').order_by(MissingPerson.created_at.asc()).all()
+    station = session.get('police_station')
+    if current_user().role == 'POLICE_OFFICER' and station not in POLICE_STATIONS:
+        return api_error('Sign in again and choose a police station.', 403)
+    if current_user().role == 'POLICE_OFFICER':
+        local_rows = [person for person in rows if missing_person_matches_station(person, station)]
+        outside_count = len(rows) - len(local_rows)
+        rows = local_rows
+    else:
+        outside_count = 0
     owners = {u.id: u for u in User.query.filter(User.id.in_([p.registered_by for p in rows])).all()} if rows else {}
     items = []
     for person in rows:
@@ -1933,7 +1957,21 @@ def list_missing_person_reviews():
         item['reporter_name'] = owner.name if owner else 'Unknown'
         item['reporter_contact'] = owner.phone if owner else None
         items.append(item)
-    return jsonify(items=items)
+    return jsonify(items=items, outside_station_count=outside_count, police_station=station)
+
+
+@app.post('/api/police/missing-person-cases/request-wider-review')
+@require_auth({'POLICE_OFFICER'})
+def request_wider_missing_person_review():
+    station = session.get('police_station')
+    if station not in POLICE_STATIONS:
+        return api_error('Sign in again and choose a police station.', 403)
+    admins = User.query.filter_by(role='ADMIN_DEMO').all()
+    for admin in admins:
+        db.session.add(Notification(user_id=admin.id, title='Police station review request',
+            message=f'{station} requests supervisor approval to review pending missing-person reports outside its local area.', type='case'))
+    db.session.commit()
+    return jsonify(message='A supervisor approval request was sent.' if admins else 'No supervisor account is available to receive the request.')
 
 
 @app.put('/api/police/missing-person-cases/<int:pid>')
@@ -1942,6 +1980,12 @@ def review_missing_person_case(pid):
     person = db.session.get(MissingPerson, pid)
     if not person:
         return api_error('Case not found.', 404)
+    if current_user().role == 'POLICE_OFFICER':
+        station = session.get('police_station')
+        if station not in POLICE_STATIONS:
+            return api_error('Sign in again and choose a police station.', 403)
+        if not missing_person_matches_station(person, station):
+            return api_error('This report is outside your station area. Request supervisor approval first.', 403)
     if person.approval_status != 'PENDING_APPROVAL':
         return api_error('This case has already been reviewed.', 409)
     data = request.get_json(silent=True) or {}
